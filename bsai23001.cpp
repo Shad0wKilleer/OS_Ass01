@@ -2,15 +2,15 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/time.h>
+#include <iomanip>  
 
-// A simple demonstration of Inter-Process Communication (IPC)
-// The parent sends a number to the child, and the child sends it back.
+const int NUM_MESSAGES = 1000000;
 
 int main() {
     int parent_to_child_pipe[2];
     int child_to_parent_pipe[2];
 
-    // Create the communication channels
     if (pipe(parent_to_child_pipe) == -1 || pipe(child_to_parent_pipe) == -1) {
         perror("pipe creation failed");
         return 1;
@@ -24,41 +24,42 @@ int main() {
     }
 
     if (process_id == 0) {
-        // --- Child Process ---
-        // Close unused pipe ends
-        close(parent_to_child_pipe[1]); // Child doesn't write to this one
-        close(child_to_parent_pipe[0]); // Child doesn't read from this one
+        close(parent_to_child_pipe[1]); 
+        close(child_to_parent_pipe[0]);
 
-        int received_val;
-        read(parent_to_child_pipe[0], &received_val, sizeof(int));
-        std::cout << "Child received: " << received_val << std::endl;
+        int buffer;
+        for (int i = 0; i < NUM_MESSAGES; ++i) {
+            read(parent_to_child_pipe[0], &buffer, sizeof(int));
+            write(child_to_parent_pipe[1], &buffer, sizeof(int));
+        }
 
-        // Send it back
-        write(child_to_parent_pipe[1], &received_val, sizeof(int));
-        
-        // Close the pipes we used
         close(parent_to_child_pipe[0]);
         close(child_to_parent_pipe[1]);
 
     } else {
-        // --- Parent Process ---
-        // Close unused pipe ends
-        close(parent_to_child_pipe[0]); // Parent doesn't read from this one
-        close(child_to_parent_pipe[1]); // Parent doesn't write to this one
+        close(parent_to_child_pipe[0]);
+        close(child_to_parent_pipe[1]);
 
-        int sent_val = 42;
-        std::cout << "Parent sending: " << sent_val << std::endl;
-        write(parent_to_child_pipe[1], &sent_val, sizeof(int));
+        struct timeval start_time, end_time;
+        gettimeofday(&start_time, NULL); // Start the timer
 
-        int returned_val;
-        read(child_to_parent_pipe[0], &returned_val, sizeof(int));
-        std::cout << "Parent got back: " << returned_val << std::endl;
+        for (int i = 0; i < NUM_MESSAGES; ++i) {
+            int message = i;
+            write(parent_to_child_pipe[1], &message, sizeof(int));
+            read(child_to_parent_pipe[0], &message, sizeof(int));
+        }
 
-        // Close the pipes we used
+        gettimeofday(&end_time, NULL); // Stop the timer
+
+        long seconds = end_time.tv_sec - start_time.tv_sec;
+        long microseconds = end_time.tv_usec - start_time.tv_usec;
+        double total_elapsed_time = seconds + microseconds * 1e-6;
+
+        std::cout << std::fixed << std::setprecision(6);
+        std::cout << "Total time for " << NUM_MESSAGES << " roundtrips: " << total_elapsed_time << " seconds" << std::endl;
+
         close(parent_to_child_pipe[1]);
         close(child_to_parent_pipe[0]);
-        
-        // Wait for the child process to terminate
         wait(NULL);
     }
 
